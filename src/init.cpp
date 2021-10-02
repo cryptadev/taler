@@ -373,6 +373,7 @@ void SetupServerArgs()
     hidden_args.emplace_back("-sysperms");
 #endif
     gArgs.AddArg("-txindex", strprintf("Maintain a full transaction index, used by the getrawtransaction rpc call (default: %u)", DEFAULT_TXINDEX), false, OptionsCategory::OPTIONS);
+    gArgs.AddArg("-addressindex", strprintf("Maintain a full address index, used by the getaddressbalance rpc call (default: %u)", false), false, OptionsCategory::OPTIONS);
 
     gArgs.AddArg("-gen", "PoW generate enable", false, OptionsCategory::OPTIONS);
     gArgs.AddArg("-stakegen", "PoS generate enable", true, OptionsCategory::OPTIONS);
@@ -497,7 +498,6 @@ void SetupServerArgs()
     gArgs.AddArg("-rpcservertimeout=<n>", strprintf("Timeout during HTTP requests (default: %d)", DEFAULT_HTTP_SERVER_TIMEOUT), true, OptionsCategory::RPC);
     gArgs.AddArg("-rpcthreads=<n>", strprintf("Set the number of threads to service RPC calls (default: %d)", DEFAULT_HTTP_THREADS), false, OptionsCategory::RPC);
     gArgs.AddArg("-rpcuser=<user>", "Username for JSON-RPC connections", false, OptionsCategory::RPC);
-    gArgs.AddArg("-rpcuserpass=<user:pass>", "Username & Password for JSON-RPC connections", false, OptionsCategory::RPC);
     gArgs.AddArg("-rpcworkqueue=<n>", strprintf("Set the depth of the work queue to service RPC calls (default: %d)", DEFAULT_HTTP_WORKQUEUE), true, OptionsCategory::RPC);
     gArgs.AddArg("-server", "Accept command line and JSON-RPC commands", false, OptionsCategory::RPC);
 
@@ -790,19 +790,6 @@ void InitParameterInteraction()
     if (gArgs.GetBoolArg("-whitelistforcerelay", DEFAULT_WHITELISTFORCERELAY)) {
         if (gArgs.SoftSetBoolArg("-whitelistrelay", true))
             LogPrintf("%s: parameter interaction: -whitelistforcerelay=1 -> setting -whitelistrelay=1\n", __func__);
-    }
-
-    if (gArgs.IsArgSet("-rpcuserpass")) {
-        std::vector<std::string> ss;
-        std::string params = gArgs.GetArg("-rpcuserpass", "");
-        boost::split(ss, params, boost::is_any_of(":")); 
-        if (ss.size() == 2) {
-            gArgs.SoftSetBoolArg("-server", true);
-            gArgs.SoftSetArg("-rpcuser", ss[0]);
-            gArgs.SoftSetArg("-rpcpassword", ss[1]);
-        } else {
-            LogPrintf("Ignore wrong rpcuserpass: must be user:pass< but found %s\n", params);
-        }
     }
 
     if (gArgs.GetBoolArg("-restapi", false)) {
@@ -1388,7 +1375,7 @@ bool AppInitMain()
     int64_t nTotalCache = (gArgs.GetArg("-dbcache", nDefaultDbCache) << 20);
     nTotalCache = std::max(nTotalCache, nMinDbCache << 20); // total cache cannot be less than nMinDbCache
     nTotalCache = std::min(nTotalCache, nMaxDbCache << 20); // total cache cannot be greater than nMaxDbcache
-    int64_t nBlockTreeDBCache = std::min(nTotalCache / 8, (gArgs.GetBoolArg("-txindex", DEFAULT_TXINDEX) ? nMaxTxIndexCache : nMaxBlockDBCache) << 20);
+    int64_t nBlockTreeDBCache = std::min(nTotalCache / 8, nMaxBlockDBCache << 20);
     nTotalCache -= nBlockTreeDBCache;
     int64_t nCoinDBCache = std::min(nTotalCache / 2, (nTotalCache / 4) + (1 << 23)); // use 25%-50% of the remainder for disk cache
     nCoinDBCache = std::min(nCoinDBCache, nMaxCoinsDBCache << 20); // cap total coins db cache
@@ -1448,6 +1435,26 @@ bool AppInitMain()
                 // Check for changed -txindex state
                 if (fTxIndex != gArgs.GetBoolArg("-txindex", DEFAULT_TXINDEX)) {
                     strLoadError = _("You need to rebuild the database using -reindex to change -txindex");
+                    if (!fReset) {
+                        bool fRet = uiInterface.ThreadSafeQuestion(
+                            strLoadError + ".\n\n" + _("Do you want to rebuild the block database now?"),
+                            strLoadError + ".\nPlease restart with -reindex or -reindex-chainstate to recover.",
+                            "", CClientUIInterface::MSG_ERROR | CClientUIInterface::BTN_ABORT);
+                        if (fRet) {
+                            fReindex = true;
+                            fReset = true;
+                            AbortShutdown();
+                            continue;
+                        } else {
+                            LogPrintf("Aborted block database rebuild. Exiting.\n");
+                            return InitError(strLoadError);
+                        }
+                    } else { fLoaded = true; break; }
+                }
+
+                // Check for changed -addressindex state
+                if (fAddressIndex != gArgs.GetBoolArg("-addressindex", false)) {
+                    strLoadError = _("You need to rebuild the database using -reindex to change -addressindex");
                     if (!fReset) {
                         bool fRet = uiInterface.ThreadSafeQuestion(
                             strLoadError + ".\n\n" + _("Do you want to rebuild the block database now?"),
@@ -1554,6 +1561,14 @@ bool AppInitMain()
     if (ShutdownRequested()) {
         LogPrintf("Shutdown requested. Exiting.\n");
         return false;
+    }
+
+    if (gArgs.GetBoolArg("-txindex", DEFAULT_TXINDEX)) {
+        pTxIndex = MakeUnique<CTxIndexDB>(fReindex);
+    }
+
+    if (gArgs.GetBoolArg("-addressindex", false)) {
+        pAddressIndex = MakeUnique<CAddressIndexDB>(fReindex);
     }
 
     // ********************************************************* Step 9: load wallet

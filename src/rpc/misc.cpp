@@ -329,10 +329,9 @@ UniValue getaddressbalance(const JSONRPCRequest& request)
     }
     std::vector<std::pair<CAddressKey, CAddressValue>> info;
     for (auto it : addresses) {
-        if (!pblocktree->ReadAddress(it, info))
+        if (!pAddressIndex || !pAddressIndex->ReadAddress(it, info))
             throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "No information available for address");
     }
-
     UniValue result(UniValue::VARR);
     for (auto it : info) {
         UniValue output(UniValue::VOBJ);

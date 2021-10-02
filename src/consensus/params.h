@@ -70,7 +70,7 @@ struct Params {
     arith_uint256 powLimit;
     bool fPowAllowMinDifficultyBlocks;
     bool fPowNoRetargeting;
-    int64_t nPowTargetSpacingBegin;
+    int64_t nPowTargetSpacing;
     int64_t nPowTargetTimespan;
     uint256 nMinimumChainWork;
     uint256 defaultAssumeValid;
@@ -79,11 +79,8 @@ struct Params {
     int nSegwitHeight;
     int TLRHeight;
     arith_uint256 powLimitLegacy;
-    int64_t nPowTargetSpacing (int nHeight) const {
-        return nHeight >= TLRHeight ? (nPowTargetSpacingBegin / 5) : nPowTargetSpacingBegin;
-    }
     int64_t DifficultyAdjustmentIntervalPow(int nHeight) const {
-        return nPowTargetTimespan / nPowTargetSpacing(nHeight);
+        return nPowTargetTimespan / (nHeight >= TLRHeight ? nPowTargetSpacing : nPowTargetSpacing*5);
     }
     /** Proof of stake parameters **/
     int64_t nPosTargetSpacing;

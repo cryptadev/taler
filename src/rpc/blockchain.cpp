@@ -101,7 +101,7 @@ UniValue blockheaderToJSON(const CBlockIndex* blockindex)
     result.pushKV("bits", strprintf("%08x", blockindex->nBits));
     result.pushKV("difficulty", GetDifficulty(false, blockindex));
     result.pushKV("chainwork", blockindex->nChainWork().GetHex());
-    result.pushKV("nTx", (uint64_t)blockindex->nTx());
+    result.pushKV("nTx", (uint64_t)blockindex->nTx);
 
     if (blockindex->pprev)
         result.pushKV("previousblockhash", blockindex->pprev->GetBlockHash().GetHex());
@@ -150,7 +150,7 @@ UniValue blockToJSON(const CBlock& block, const CBlockIndex* blockindex, bool tx
     result.pushKV("bits", strprintf("%08x", block.nBits));
     result.push_back(Pair("difficulty", GetDifficulty(false, blockindex)));
     result.pushKV("chainwork", blockindex->nChainWork().GetHex());
-    result.pushKV("nTx", (uint64_t)blockindex->nTx());
+    result.pushKV("nTx", (uint64_t)blockindex->nTx);
 
     if (blockindex->pprev)
         result.pushKV("previousblockhash", blockindex->pprev->GetBlockHash().GetHex());
@@ -1533,7 +1533,7 @@ static UniValue getchaintxstats(const JSONRPCRequest& request)
         );
 
     const CBlockIndex* pindex;
-    int blockcount = 30 * 24 * 60 * 60 / Params().GetConsensus().nPowTargetSpacing(Params().GetConsensus().TLRHeight); // By default: 1 month
+    int blockcount = 30 * 24 * 60 * 60 / Params().GetConsensus().nPowTargetSpacing; // By default: 1 month
 
     if (request.params[1].isNull()) {
         LOCK(cs_main);
@@ -2276,8 +2276,8 @@ UniValue dumpblock (const JSONRPCRequest& request) {
     if (!toInt32 (request, 0, startblock, ret)) return ret;
     if (!toInt32 (request, 1, numblock, ret)) return ret;
     if (!toInt32 (request, 2, ext, ret)) return ret;
-    int64_t powspace = Params().GetConsensus().nPowTargetSpacingBegin;
-    int64_t powcnt = 120, poscnt = 8640, needpow = powspace / 5 * powcnt, needpos = 120 * poscnt;
+    int64_t powspace = Params().GetConsensus().nPowTargetSpacing;
+    int64_t powcnt = 120, poscnt = 8640, needpow = powspace * powcnt, needpos = 120 * poscnt;
     
     uint32_t n = chainActive.Height(), m = 0;
     if (startblock > n) { if (numblock < n) { m = n - numblock; } } else
@@ -2287,7 +2287,7 @@ UniValue dumpblock (const JSONRPCRequest& request) {
 		CBlockIndex* pindex = chainActive[i];
         if (ext == 331) {
             if (Params().forkNumber(pindex->nHeight) >= 3) {
-                powcnt = 12; poscnt = 12; needpow = 2 * powspace / 5 * powcnt; needpos = 2 * powspace / 5 * poscnt;
+                powcnt = 12; poscnt = 12; needpow = 2 * powspace * powcnt; needpos = 2 * powspace * poscnt;
             }
             bool fProofOfStake = pindex->IsProofOfStake();
             int64_t actt = 0;
@@ -2312,7 +2312,7 @@ UniValue dumpblock (const JSONRPCRequest& request) {
             }
             continue;
         }
-	    if (fHavePruned && !(pindex->nStatus & BLOCK_HAVE_DATA) && pindex->nTx() > 0) {
+	    if (fHavePruned && !(pindex->nStatus & BLOCK_HAVE_DATA) && pindex->nTx > 0) {
 			logWrite (strprintf("chain %d not found on disk (pruned)", i));
 			continue;
 		}
@@ -2647,28 +2647,6 @@ UniValue dumpaddress (const JSONRPCRequest& request) {
     return ret;
 }
 
-static UniValue dumpdb(const JSONRPCRequest& request)
-{
-    if (request.fHelp || request.params.size() != 0)
-        throw std::runtime_error(
-            "dumpdb\n"
-            "\nReturns the proof-of-work difficulty as a multiple of the minimum difficulty.\n"
-            "\nResult:\n"
-            "n.nnn       (numeric) the proof-of-work difficulty as a multiple of the minimum difficulty.\n"
-            "\nExamples:\n"
-            + HelpExampleCli("dumpdb", "")
-            + HelpExampleRpc("dumpdb", "")
-        );
-
-    LOCK(cs_main);
-    pblocktree->DumpAddrDB ();
-    UniValue obj(UniValue::VOBJ);
-    obj.push_back(Pair("proof-of-work",        GetDifficulty(false)));
-    obj.push_back(Pair("proof-of-stake",       GetDifficulty(true)));
-    obj.push_back(Pair("search-interval",      (int)nLastCoinStakeSearchInterval));
-    return obj;
-}
-
 static const CRPCCommand commands[] =
 { //  category              name                      actor (function)         argNames
   //  --------------------- ------------------------  -----------------------  ----------
@@ -2699,7 +2677,6 @@ static const CRPCCommand commands[] =
     { "hidden",             "dumpcoin",           	  &dumpcoin,               {"minout"} },
     { "hidden",             "dumpblock",         	  &dumpblock,              {"startblock", "numblock", "ext"} },
     { "hidden",             "dumpaddress",       	  &dumpaddress,            {} }, 
-    { "hidden",             "dumpdb",       	      &dumpdb,                 {} }, 
 
     /* Not shown in help */
     { "hidden",             "invalidateblock",        &invalidateblock,        {"blockhash"} },

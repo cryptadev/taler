@@ -641,6 +641,7 @@ bool api_chain (HTTPRequest* req, const std::string& strURIPart) {
     UniValue root (UniValue::VOBJ);
     root.pushKV("bestblockhash",        chainActive.Tip()->GetBlockHash().GetHex()); 
     root.pushKV("blocks",               (int)chainActive.Height());
+    root.pushKV("powblocks",            (int)chainActive.Tip()->nPowHeight);
     root.pushKV("headers",              pindexBestHeader ? pindexBestHeader->nHeight : -1);
     root.pushKV("difficulty_pow",       GetDifficulty(false));
     root.pushKV("difficulty_pos",       GetDifficulty(true));
@@ -777,6 +778,7 @@ std::string getHeaderData (UniValue& obj, const CBlockIndex* pi, bool full_tx) {
     if (chainActive.Contains(pi)) confirmations = chainActive.Height() - pi->nHeight + 1;
     obj.pushKV("confirmations", confirmations);
     obj.pushKV("height", pi->nHeight);
+    obj.pushKV("powheight", pi->nPowHeight);
     obj.pushKV("versionHex", strprintf("0x%08x", block.nVersion));
     obj.pushKV("merkleroot", block.hashMerkleRoot.GetHex());
     obj.pushKV("time", block.GetBlockTime());
@@ -788,7 +790,7 @@ std::string getHeaderData (UniValue& obj, const CBlockIndex* pi, bool full_tx) {
     if (pnext) obj.pushKV("nextblockhash", pnext->GetBlockHash().GetHex());
     obj.push_back(Pair("size", (int)::GetSerializeSize(block, SER_NETWORK, PROTOCOL_VERSION)));
     obj.pushKV("chainwork", pi->nChainWork().GetHex());
-    obj.pushKV("nTx", (uint64_t)pi->nTx());
+    obj.pushKV("nTx", (uint64_t)pi->nTx);
     obj.pushKV("type", pi->IsProofOfStake() ? "proof-of-stake" : "proof-of-work");
     UniValue utx (UniValue::VARR);
     for(const auto& tx : block.vtx) {
@@ -900,7 +902,7 @@ bool api_address (HTTPRequest* req, const std::string& strURIPart) {
     if (!IsValidDestination(DecodeDestination(sss))) 
         return API_ERROR (req, "address " + strURIPart + " is invalid");
     std::vector<std::pair<CAddressKey, CAddressValue>> info;
-    if (!pblocktree->ReadAddress(GetScriptForDestination(DecodeDestination(sss)), info))
+    if (!pAddressIndex || !pAddressIndex->ReadAddress(GetScriptForDestination(DecodeDestination(sss)), info))
         return API_ERROR (req, "address " + strURIPart + " not found");
     UniValue coins(UniValue::VARR);
     CAmount value = 0, receive_amount = 0, send_amount = 0; 

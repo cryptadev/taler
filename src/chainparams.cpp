@@ -65,7 +65,7 @@ public:
         consensus.powLimit = (~arith_uint256 (0)) >> 8;
         consensus.powLimitLegacy = (~arith_uint256 (0)) >> 20;
         consensus.nPowTargetTimespan = 10 * 60;
-        consensus.nPowTargetSpacingBegin = 5 * 60;
+        consensus.nPowTargetSpacing = 1 * 60;
         consensus.fPowAllowMinDifficultyBlocks = false;
         consensus.fPowNoRetargeting = false;
         consensus.nPosTargetTimespan = 14 * 24 * 60 * 60;       // two weeks
@@ -171,7 +171,7 @@ public:
         consensus.powLimit = (~arith_uint256 (0)) >> 16;
         consensus.powLimitLegacy = (~arith_uint256 (0)) >> 16;
         consensus.nPowTargetTimespan = 30 * 60;
-        consensus.nPowTargetSpacingBegin = 2.5 * 60;
+        consensus.nPowTargetSpacing = 0.5 * 60;
         consensus.fPowAllowMinDifficultyBlocks = false;
         consensus.fPowNoRetargeting = false;
         consensus.nPosTargetTimespan = 14 * 24 * 60 * 60;       // two weeks
@@ -252,7 +252,7 @@ public:
         consensus.powLimitLegacy = (~arith_uint256 (0)) >> 16;
         consensus.posLimit = (~arith_uint256 (0)) >> 8;
         consensus.nPowTargetTimespan = 24 * 60 * 60;
-        consensus.nPowTargetSpacingBegin = 5 * 60;
+        consensus.nPowTargetSpacing = 1 * 60;
         consensus.fPowAllowMinDifficultyBlocks = true;
         consensus.fPowNoRetargeting = true;
 

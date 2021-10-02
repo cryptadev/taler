@@ -160,8 +160,6 @@ enum BlockStatus: uint32_t {
     BLOCK_FAILED_VALID       =   32, //!< stage after last reached validness failed
     BLOCK_FAILED_CHILD       =   64, //!< descends from failed block
     BLOCK_FAILED_MASK        =   BLOCK_FAILED_VALID | BLOCK_FAILED_CHILD,
-
-    BLOCK_OPT_WITNESS       =   128, //!< block data in blk*.data was received with a witness-enforcing client
 };
 
 /** The block chain is a tree shaped structure starting with the
@@ -188,8 +186,7 @@ public:
     int nPowHeight;
 
     //! Which # file this block is stored in (blk?????.dat)
-    int nFile () const { return _nTx >> 16; }
-    void nFile_set (int nFile) { _nTx &= 0xFFFF; _nTx |= nFile << 16; }
+    int nFile;
 
     //! Byte offset within blk?????.dat where this block's data is stored
     unsigned int nDataPos;
@@ -214,9 +211,7 @@ public:
 
     //! Number of transactions in this block.
     //! Note: in a potential headers-first mode, this number cannot be relied upon
-    unsigned int _nTx;
-    int nTx () const { return _nTx & 0xFFFF; }
-    void nTx_set (int nTx) { _nTx &= 0xFFFF0000; _nTx |= nTx; }
+    unsigned int nTx;
 
     //! (memory only) Number of transactions in the chain up to and including this block.
     //! This value will be non-zero only if and only if transactions for this block and all its parents are available.
@@ -282,10 +277,11 @@ public:
         pskip = nullptr;
         nHeight = 0;
         nPowHeight = 0;
+        nFile = 0;
         nDataPos = 0;
         nUndoPos = 0;
         _nChainWork[0] = _nChainWork[1] = _nChainWork[2] = _nChainWork[3] = 0;
-        _nTx = 0;
+        nTx = 0;
         nChainTx = 0;
         nStatus = 0;
 
@@ -319,7 +315,7 @@ public:
     CDiskBlockPos GetBlockPos() const {
         CDiskBlockPos ret;
         if (nStatus & BLOCK_HAVE_DATA) {
-            ret.nFile = nFile();
+            ret.nFile = nFile;
             ret.nPos  = nDataPos;
         }
         return ret;
@@ -328,7 +324,7 @@ public:
     CDiskBlockPos GetUndoPos() const {
         CDiskBlockPos ret;
         if (nStatus & BLOCK_HAVE_UNDO) {
-            ret.nFile = nFile();
+            ret.nFile = nFile;
             ret.nPos  = nUndoPos;
         }
         return ret;
@@ -344,7 +340,6 @@ public:
         block.nTime          = nTime;
         block.nBits          = nBits;
         block.nNonce         = nNonce;
-//        block.nFlags         = (nFlags & BLOCK_PROOF_OF_STAKE) | (nFlags & BLOCK_NEW_FORMAT);
         block.nFlags         = nFlags() & (BLOCK_PROOF_OF_STAKE | BLOCK_NEW_FORMAT);
         return block;
     }
@@ -378,7 +373,7 @@ public:
     std::string ToString() const
     {
         return strprintf("CBlockIndex(nprev=%08x, nFile=%d, nHeight=%d, nPowHeight=%d, nFlags=(%s)(%d)(%s), nStakeModifier=%016llx, hashProofOfStake=%s, merkle=%s, hashBlock=%s)",
-            pprev, nFile(), nHeight, nPowHeight,
+            pprev, nFile, nHeight, nPowHeight,
             GeneratedStakeModifier() ? "MOD" : "-", GetStakeEntropyBit(), IsProofOfStake()? "PoS" : "PoW",
             nStakeModifier, 
             hashProofOfStake.ToString().c_str(),
@@ -448,24 +443,20 @@ public:
 
         READWRITE(VARINT(nHeight, VarIntMode::NONNEGATIVE_SIGNED));
         READWRITE(VARINT(nStatus));
-        unsigned int nTx2 = 0;
-        if (!ser_action.ForRead()) { nTx2 = nTx(); }
-        READWRITE(VARINT(nTx2));
-        if (ser_action.ForRead()) { nTx_set(nTx2); }
-        if (nStatus & (BLOCK_HAVE_DATA | BLOCK_HAVE_UNDO)) {
-            int nFile2 = 0;
-            if (!ser_action.ForRead()) { nFile2 = nFile(); }
-            READWRITE(VARINT(nFile2, VarIntMode::NONNEGATIVE_SIGNED));
-            if (ser_action.ForRead()) { nFile_set(nFile2); }
-        }
+        READWRITE(VARINT(nTx));
+        if (nStatus & (BLOCK_HAVE_DATA | BLOCK_HAVE_UNDO))
+            READWRITE(VARINT(nFile, VarIntMode::NONNEGATIVE_SIGNED));
         if (nStatus & BLOCK_HAVE_DATA)
             READWRITE(VARINT(nDataPos));
         if (nStatus & BLOCK_HAVE_UNDO)
             READWRITE(VARINT(nUndoPos));
 
-        if (Params().forkNumber(nHeight) >= 3) {
+        if (ser_action.ForRead()) {
+            nPowHeight = nHeight;
             nStakeModifier = 0;
             hashProofOfStake = uint256();
+        }
+        if (Params().forkNumber(nHeight) >= 3) {
             READWRITE(VARINT(nPowHeight, VarIntMode::NONNEGATIVE_SIGNED));
         } else {    
             uint32_t nFlags2 = 0;
@@ -476,15 +467,8 @@ public:
             if (Params().forkNumber(nHeight) >= 2) {
                 if (IsProofOfStake()) {
                     READWRITE(hashProofOfStake);
-                } else if (ser_action.ForRead()) {
-                    hashProofOfStake = uint256();
                 };
                 READWRITE(VARINT(nPowHeight, VarIntMode::NONNEGATIVE_SIGNED));
-            } else {
-                if (ser_action.ForRead()) {
-                    hashProofOfStake = uint256();
-                    nPowHeight = nHeight;
-                }
             }
         }
 

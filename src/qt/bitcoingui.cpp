@@ -786,7 +786,7 @@ void BitcoinGUI::updateHeadersSyncProgressLabel()
 {
     int64_t headersTipTime = clientModel->getHeaderTipTime();
     int headersTipHeight = clientModel->getHeaderTipHeight();
-    int estHeadersLeft = (GetTime() - headersTipTime) / Params().GetConsensus().nPowTargetSpacingBegin;
+    int estHeadersLeft = (GetTime() - headersTipTime) / Params().GetConsensus().nPowTargetSpacing;
     if (estHeadersLeft > HEADER_HEIGHT_DELTA_SYNC)
         progressBarLabel->setText(tr("Syncing Headers (%1%)...").arg(QString::number(100.0 / (headersTipHeight+estHeadersLeft)*headersTipHeight, 'f', 1)));
 }
@@ -795,9 +795,10 @@ void BitcoinGUI::setNumBlocks(int count, const QDateTime& blockDate, double nVer
 {
     if (modalOverlay)
     {
-        if (header)
+        if (header) {
             modalOverlay->setKnownBestHeight(count, blockDate);
-        else
+            modalOverlay->tipUpdate(count, blockDate, 0);
+        } else
             modalOverlay->tipUpdate(count, blockDate, nVerificationProgress);
     }
     if (!clientModel)

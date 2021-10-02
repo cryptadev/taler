@@ -402,7 +402,6 @@ bool ArgsManager::ParseParameters(int argc, const char* const argv[], std::strin
 {
     LOCK(cs_args);
     m_override_args.clear();
-
     for (int i = 1; i < argc; i++) {
         std::string key(argv[i]);
         std::string val;

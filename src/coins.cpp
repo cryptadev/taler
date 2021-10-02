@@ -12,20 +12,21 @@
 #include <key_io.h>
 #include <core_io.h>
 
-void CAddressKey::SetScript(const CScript& pscript) {
+CAddressKey::CAddressKey(const CScript& pscript, const COutPoint& pout) {
     script = pscript;
-    script2.clear();
-    CTxDestination ar;
-    if (ExtractDestination(script, ar)) script2 = GetScriptForDestination(ar);
-    if (script == script2) script2.clear();
+    out = pout;
+    if (script.size() > 30) {
+        CTxDestination ar;
+        if (ExtractDestination(script, ar)) script = GetScriptForDestination(ar);
+    }
 }
 
-std::string CAddressKey::GetAddr (bool asmifnull) {
+std::string CAddressKey::GetAddr (bool notnull) {
     CTxDestination ar;
-    if (ExtractDestination (GetScript(), ar)) return EncodeDestination(ar);
-    if (asmifnull) return ScriptToAsmStr (GetScript());
+    if (ExtractDestination (script, ar)) return EncodeDestination(ar);
+    if (notnull) return ScriptToAsmStr (script);
     return "";
-};
+}
 
 bool CCoinsView::GetCoin(const COutPoint &outpoint, Coin &coin) const { return false; }
 uint256 CCoinsView::GetBestBlock() const { return uint256(); }

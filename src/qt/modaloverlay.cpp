@@ -80,10 +80,11 @@ void ModalOverlay::tipUpdate(int count, const QDateTime& blockDate, double nVeri
     QDateTime currentDate = QDateTime::currentDateTime();
 
     // keep a vector of samples of verification progress at height
-    blockProcessTime.push_front(qMakePair(currentDate.toMSecsSinceEpoch(), nVerificationProgress));
+    if (nVerificationProgress > 0)
+        blockProcessTime.push_front(qMakePair(currentDate.toMSecsSinceEpoch(), nVerificationProgress));
 
     // show progress speed if we have more than one sample
-    if (blockProcessTime.size() >= 2) {
+    if ((blockProcessTime.size() >= 2) || (nVerificationProgress == 0)) {
         double progressDelta = 0;
         double progressPerHour = 0;
         qint64 timeDelta = 0;
@@ -117,12 +118,16 @@ void ModalOverlay::tipUpdate(int count, const QDateTime& blockDate, double nVeri
         }
     }
 
-    // show the last block date
-    ui->newestBlockDate->setText(blockDate.toString());
+    static bool init = false;
+    if ((nVerificationProgress > 0) || !init) {
+        init = true;
+        // show the last block date
+        ui->newestBlockDate->setText(blockDate.toString());
 
-    // show the percentage done according to nVerificationProgress
-    ui->percentageProgress->setText(QString::number(nVerificationProgress*100, 'f', 2)+"%");
-    ui->progressBar->setValue(nVerificationProgress*100);
+        // show the percentage done according to nVerificationProgress
+        ui->percentageProgress->setText(QString::number(nVerificationProgress*100, 'f', 2)+"%");
+        ui->progressBar->setValue(nVerificationProgress*100);
+    }
 
     if (!bestHeaderDate.isValid())
         // not syncing
@@ -130,7 +135,7 @@ void ModalOverlay::tipUpdate(int count, const QDateTime& blockDate, double nVeri
 
     // estimate the number of headers left based on nPowTargetSpacing
     // and check if the gui is not aware of the best header (happens rarely)
-    int estimateNumHeadersLeft = bestHeaderDate.secsTo(currentDate) / Params().GetConsensus().nPowTargetSpacingBegin;
+    int estimateNumHeadersLeft = bestHeaderDate.secsTo(currentDate) / Params().GetConsensus().nPowTargetSpacing;
     bool hasBestHeader = bestHeaderHeight >= count;
 
     // show remaining number of blocks

@@ -326,7 +326,6 @@ const Coin& AccessByTxid(const CCoinsViewCache& cache, const uint256& txid);
 struct CAddressKey {
     CScript script;
     COutPoint out;
-    CScript script2;
 
     ADD_SERIALIZE_METHODS;
 
@@ -334,34 +333,19 @@ struct CAddressKey {
     inline void SerializationOp(Stream& s, Operation ser_action) {
         READWRITE(script);
         READWRITE(out);
-        if (ser_action.ForRead()) {
-            if (s.size() == 0) {
-                script2.clear();
-            } else {
-                READWRITE(script2);
-            }
-        } else if (!script2.empty()) {
-            READWRITE(script2);
-        }
     }
 
-    CAddressKey(const CScript& pscript, const COutPoint& pout) {
-        SetScript (pscript);
-        out = pout;
-    }
+    CAddressKey(const CScript& pscript, const COutPoint& pout);
 
     CAddressKey() {
         SetNull();
     }
 
-    void SetScript (const CScript& pscript);
-    CScript GetScript () { return script2.empty() ? script : script2; }
-    std::string GetAddr (bool asmifnull = false);
+    std::string GetAddr (bool notnull = false);
 
     void SetNull() {
         script.clear();
         out.SetNull();
-        script2.clear();
     }
 
     bool IsNull() const {
@@ -390,21 +374,21 @@ struct CAddressValue {
     }
 
     CAddressValue(CAmount pvalue, uint32_t pheight) {
+        SetNull();
         value = pvalue;
         height = pheight;
-        spend_height = 0;
-        spend_hash.SetNull();
-        spend_n = 0;
+    }
+
+    CAddressValue(CAmount pvalue, uint32_t pheight, uint32_t pspend_height, const uint256& pspend_hash, uint32_t pspend_n) {
+        value = pvalue;
+        height = pheight;
+        spend_height = pspend_height;
+        spend_hash = pspend_hash;
+        spend_n = pspend_n;
     }
 
     CAddressValue() {
         SetNull();
-    }
-
-    void addSpend (const uint256& pspend_hash, uint32_t pspend_n, uint32_t pspend_height) {
-        spend_hash = pspend_hash;
-        spend_n = pspend_n;
-        spend_height = pspend_height;
     }
 
     void SetNull() {

@@ -69,7 +69,7 @@ GetNextWorkRequiredBTC(const CBlockIndex *pindexLast, const CBlockHeader *pblock
             // If the new block's timestamp is more than 2* 10 minutes
             // then allow mining of a min-difficulty block.
             if (pblock->GetBlockTime() > pindexLast->GetBlockTime() +
-                                         params.nPowTargetSpacing(pindexLast->nHeight) * 2)
+                                         params.nPowTargetSpacing * 5 * 2)
                 return nProofOfWorkLimit;
             else {
                 // Return the last non-special-min-difficulty-rules-block
@@ -130,7 +130,8 @@ unsigned int DarkGravityWaveOld(const CBlockIndex *pindexLast, const Consensus::
     }
     bnNew /= (nBlocks+1);
     bnNew -= nBlocks+1;
-    int64_t nTargetTimespan = nBlocks * params.nPowTargetSpacing (pindexLast->nHeight);
+    int64_t nTargetTimespan = nBlocks * params.nPowTargetSpacing;
+    if (pindexLast->nHeight < params.TLRHeight) nTargetTimespan *= 5;
     if (nActualTimespan < nTargetTimespan / 3) nActualTimespan = nTargetTimespan / 3;
     if (nActualTimespan > nTargetTimespan * 3) nActualTimespan = nTargetTimespan * 3;
     // Retarget
@@ -155,7 +156,7 @@ unsigned int DarkGravityWave(const CBlockIndex *pindexLast, const Consensus::Par
     }
     bnNew /= (nBlocks+1);
     bnNew -= nBlocks+1;
-    int64_t nTargetTimespan = nBlocks * params.nPowTargetSpacing (pindexLast->nHeight);
+    int64_t nTargetTimespan = nBlocks * params.nPowTargetSpacing;
     if (nActualTimespan < nTargetTimespan / 3) nActualTimespan = nTargetTimespan / 3;
     if (nActualTimespan > nTargetTimespan * 3) nActualTimespan = nTargetTimespan * 3;
     // Retarget
@@ -207,7 +208,7 @@ uint32_t GetNextWorkRequired(const CBlockIndex *pindexLast, const CBlockHeader *
         srcTimes += std::max(pPrev->GetBlockTime() - pPrevPrev->GetBlockTime(), (int64_t)0);
         pPrev = pPrevPrev;
     }
-    bnNew /= destBlockCount * 2 * params.nPowTargetSpacingBegin / 5;
+    bnNew /= destBlockCount * 2 * params.nPowTargetSpacing;
     bnNew *= srcTimes;
     if (bnNew > (bnOld << 2)) bnNew = bnOld << 2;
     if (bnNew < (bnOld >> 3)) bnNew = bnOld >> 3;
