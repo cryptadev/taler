@@ -326,13 +326,16 @@ const Coin& AccessByTxid(const CCoinsViewCache& cache, const uint256& txid);
 struct CAddressKey {
     CScript script;
     COutPoint out;
+    uint32_t stype;
 
     ADD_SERIALIZE_METHODS;
 
     template <typename Stream, typename Operation>
     inline void SerializationOp(Stream& s, Operation ser_action) {
         READWRITE(script);
-        READWRITE(out);
+        READWRITE(out.hash);
+        READWRITE(VARINT(out.n));
+        READWRITE(VARINT(stype));
     }
 
     CAddressKey(const CScript& pscript, const COutPoint& pout);
@@ -341,11 +344,12 @@ struct CAddressKey {
         SetNull();
     }
 
-    std::string GetAddr (bool notnull = false);
+    std::string GetAddr ();
 
     void SetNull() {
         script.clear();
         out.SetNull();
+        stype = 0;
     }
 
     bool IsNull() const {
@@ -356,6 +360,7 @@ struct CAddressKey {
 struct CAddressValue {
     CAmount value;
     uint32_t height;
+    bool iscoinbase;
     uint256 spend_hash;
     uint32_t spend_n;
     uint32_t spend_height;
@@ -366,22 +371,25 @@ struct CAddressValue {
     inline void SerializationOp(Stream& s, Operation ser_action) {
         READWRITE(value);
         READWRITE(height);
+        READWRITE(iscoinbase);
         READWRITE(spend_height);
         if (spend_height > 0) {
             READWRITE(spend_hash);
-            READWRITE(spend_n);
+            READWRITE(VARINT(spend_n));
         }
     }
 
-    CAddressValue(CAmount pvalue, uint32_t pheight) {
+    CAddressValue(CAmount pvalue, uint32_t pheight, bool pcoinbase) {
         SetNull();
         value = pvalue;
         height = pheight;
+        iscoinbase = pcoinbase;
     }
 
-    CAddressValue(CAmount pvalue, uint32_t pheight, uint32_t pspend_height, const uint256& pspend_hash, uint32_t pspend_n) {
+    CAddressValue(CAmount pvalue, uint32_t pheight, bool pcoinbase, uint32_t pspend_height, const uint256& pspend_hash, uint32_t pspend_n) {
         value = pvalue;
         height = pheight;
+        iscoinbase = pcoinbase;
         spend_height = pspend_height;
         spend_hash = pspend_hash;
         spend_n = pspend_n;
@@ -394,6 +402,7 @@ struct CAddressValue {
     void SetNull() {
         value = 0;
         height = 0;
+        iscoinbase = false;
         spend_height = 0;
         spend_hash.SetNull();
         spend_n = 0;

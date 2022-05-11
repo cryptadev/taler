@@ -252,8 +252,6 @@ namespace {
 std::unique_ptr<CCoinsViewDB> pcoinsdbview;
 std::unique_ptr<CCoinsViewCache> pcoinsTip;
 std::unique_ptr<CBlockTreeDB> pblocktree;
-std::unique_ptr<CTxIndexDB> pTxIndex;
-std::unique_ptr<CAddressIndexDB> pAddressIndex;
 
 enum class FlushStateMode {
     NONE,
@@ -974,9 +972,9 @@ bool GetTransaction(const uint256& hash, CTransactionRef& txOut, const Consensus
             return true;
         }
 
-        if (fTxIndex && pTxIndex) {
+        if (fTxIndex) {
             CDiskTxPos postx;
-            if (!pTxIndex->ReadTxIndex(hash, postx)) return false;
+            if (!pblocktree->ReadTxIndex(hash, postx)) return false;
             CAutoFile file(OpenBlockFile(postx, true), SER_DISK, CLIENT_VERSION);
             if (file.IsNull()) return error("%s: OpenBlockFile failed", __func__);
             CBlockHeader header;
@@ -1619,14 +1617,14 @@ DisconnectResult CChainState::DisconnectBlock(const CBlock& block, const CBlockI
                 if (!fAddressIndex) continue;
                 const Coin &coin = view.AccessCoin(out);
                 addressKeyValue.push_back(std::make_pair(CAddressKey(coin.out.scriptPubKey, out), 
-                            CAddressValue(coin.out.nValue, coin.nHeight)));
+                            CAddressValue(coin.out.nValue, coin.nHeight, coin.IsCoinBase())));
             }
             // At this point, all of txundo.vprevout should have been moved out.
         }
     }
 
-    if (pAddressIndex) {
-        if (!pAddressIndex->WriteAddress(addressKeyValue)) {
+    if (fAddressIndex) {
+        if (!pblocktree->WriteAddress(addressKeyValue)) {
             AbortNode("Failed to write address");
             return DISCONNECT_FAILED;
         }
@@ -1842,10 +1840,8 @@ static bool WriteTxIndexDataForBlock(const CBlock& block, CValidationState& stat
         pos.nTxOffset += ::GetSerializeSize(*tx, SER_DISK, CLIENT_VERSION);
     }
 
-    if (pTxIndex) {
-        if (!pTxIndex->WriteTxIndex(vPos)) {
-            return AbortNode(state, "Failed to write transaction index");
-        }
+    if (!pblocktree->WriteTxIndex(vPos)) {
+        return AbortNode(state, "Failed to write transaction index");
     }
 
     return true;
@@ -2070,7 +2066,7 @@ bool CChainState::ConnectBlock(const CBlock& block, CValidationState& state, CBl
         for (size_t j = 0; j < tx.vin.size(); j++) {
             if (!fAddressIndex) break;
             const Coin& coin = view.AccessCoin(tx.vin[j].prevout);
-            CAddressValue addrval(coin.out.nValue, coin.nHeight, pindex->nHeight, tx.GetHash(), j);
+            CAddressValue addrval(coin.out.nValue, coin.nHeight, coin.IsCoinBase(), pindex->nHeight, tx.GetHash(), j);
             if (!fTxIndex) addrval.height = 0;
             addressKeyValue.push_back(std::make_pair(CAddressKey(coin.out.scriptPubKey, tx.vin[j].prevout), addrval));
         }
@@ -2100,7 +2096,7 @@ bool CChainState::ConnectBlock(const CBlock& block, CValidationState& state, CBl
             const CTxOut &out = tx.vout[k];
             if (out.scriptPubKey.IsUnspendable()) continue;
             addressKeyValue.push_back(std::make_pair(CAddressKey(out.scriptPubKey, COutPoint(tx.GetHash(), k)),
-                        CAddressValue(out.nValue, pindex->nHeight)));
+                        CAddressValue(out.nValue, pindex->nHeight, tx.IsCoinBase())));
         }
 
         CTxUndo undoDummy;
@@ -2150,8 +2146,8 @@ bool CChainState::ConnectBlock(const CBlock& block, CValidationState& state, CBl
     if (!WriteTxIndexDataForBlock(block, state, pindex))
         return false;
 
-    if (pAddressIndex) {
-        if (!pAddressIndex->WriteAddress(addressKeyValue)) {
+    if (fAddressIndex) {
+        if (!pblocktree->WriteAddress(addressKeyValue)) {
             AbortNode("Failed to write address");
             return DISCONNECT_FAILED;
         }

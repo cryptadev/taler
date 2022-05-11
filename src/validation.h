@@ -35,8 +35,6 @@
 
 class CBlockIndex;
 class CBlockTreeDB;
-class CTxIndexDB;
-class CAddressIndexDB;
 class CChainParams;
 class CCoinsViewDB;
 class CInv;
@@ -457,9 +455,6 @@ extern std::unique_ptr<CCoinsViewCache> pcoinsTip;
 
 /** Global variable that points to the active block tree (protected by cs_main) */
 extern std::unique_ptr<CBlockTreeDB> pblocktree;
-
-extern std::unique_ptr<CTxIndexDB> pTxIndex;
-extern std::unique_ptr<CAddressIndexDB> pAddressIndex;
 
 /**
  * Return the spend height, which is one more than the inputs.GetBestBlock().

@@ -1563,14 +1563,6 @@ bool AppInitMain()
         return false;
     }
 
-    if (gArgs.GetBoolArg("-txindex", DEFAULT_TXINDEX)) {
-        pTxIndex = MakeUnique<CTxIndexDB>(fReindex);
-    }
-
-    if (gArgs.GetBoolArg("-addressindex", false)) {
-        pAddressIndex = MakeUnique<CAddressIndexDB>(fReindex);
-    }
-
     // ********************************************************* Step 9: load wallet
     if (!g_wallet_init_interface.Open()) return false;
 

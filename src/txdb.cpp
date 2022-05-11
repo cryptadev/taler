@@ -239,6 +239,51 @@ bool CBlockTreeDB::WriteBatchSync(const std::vector<std::pair<int, const CBlockF
     return WriteBatch(batch, true);
 }
 
+bool CBlockTreeDB::ReadTxIndex(const uint256 &txid, CDiskTxPos &pos) {
+    return Read(std::make_pair(DB_TXINDEX, txid), pos);
+}
+
+bool CBlockTreeDB::WriteTxIndex(const std::vector<std::pair<uint256, CDiskTxPos> >&vect) {
+    CDBBatch batch(*this);
+    for (std::vector<std::pair<uint256,CDiskTxPos> >::const_iterator it=vect.begin(); it!=vect.end(); it++)
+        batch.Write(std::make_pair(DB_TXINDEX, it->first), it->second);
+    return WriteBatch(batch);
+}
+
+// CScript, COutpoint  = value, height, spend_tx, spend_in, spend_height
+
+bool CBlockTreeDB::WriteAddress (const std::vector<std::pair<CAddressKey, CAddressValue>> &vec) {
+    CDBBatch batch(*this);
+    for (auto it : vec) {
+        if (it.second.height == 0) {
+            batch.Erase(std::make_pair(DB_ADDRESS, it.first));
+        } else {
+            batch.Write(std::make_pair(DB_ADDRESS, it.first), it.second);
+        }
+    }
+    return WriteBatch(batch);
+}
+
+bool CBlockTreeDB::ReadAddress (const CScript& script, std::vector<std::pair<CAddressKey, CAddressValue>> &vec) {
+    std::unique_ptr<CDBIterator> pcursor(NewIterator());
+    pcursor->Seek(std::make_pair(DB_ADDRESS, CAddressKey(script, COutPoint())));
+    while (pcursor->Valid()) {
+        std::pair<char, CAddressKey> key;
+        if (pcursor->GetKey(key) && (key.first == DB_ADDRESS) && key.second.script == script) {
+            CAddressValue value;
+            if (pcursor->GetValue(value)) {
+                vec.push_back(std::make_pair(key.second, value));
+                pcursor->Next();
+            } else {
+                return error("failed to get address index value");
+            }
+        } else {
+            break;
+        }
+    }
+    return true;
+}
+
 bool CBlockTreeDB::WriteFlag(const std::string &name, bool fValue) {
     return Write(std::make_pair(DB_FLAG, name), fValue ? '1' : '0');
 }
@@ -302,84 +347,4 @@ bool CBlockTreeDB::LoadBlockIndexGuts(const Consensus::Params& consensusParams, 
  */
 bool CCoinsViewDB::Upgrade() {
     return true;
-}
-
-// CTxIndexDB
-
-CTxIndexDB::CTxIndexDB(bool fWipe) :
-    CDBWrapper(GetDataDir() / "txs", 32 << 20, false, fWipe) {
-}
-
-bool CTxIndexDB::ReadTxIndex(const uint256 &txid, CDiskTxPos &pos) {
-    return Read(std::make_pair(DB_TXINDEX, txid), pos);
-}
-
-bool CTxIndexDB::WriteTxIndex(const std::vector<std::pair<uint256, CDiskTxPos> >&vect) {
-    static std::deque<std::pair<uint256, CDiskTxPos>> ququeIndex;
-    if (IsInitialBlockDownload() && (ququeIndex.size() < 10000)) {
-        for (auto it : vect) ququeIndex.push_back(std::make_pair(it.first, it.second));
-        return true;
-    }
-    CDBBatch batch(*this);
-    while (!ququeIndex.empty()) {
-        auto item = ququeIndex.front();
-        ququeIndex.pop_front();
-        batch.Write(std::make_pair(DB_TXINDEX, item.first), item.second);
-    }
-    for (std::vector<std::pair<uint256,CDiskTxPos> >::const_iterator it=vect.begin(); it!=vect.end(); it++)
-        batch.Write(std::make_pair(DB_TXINDEX, it->first), it->second);
-    return WriteBatch(batch);
-}
-
-// CAddressIndexDB
-// CScript, COutpoint  = value, height, spend_tx, spend_in, spend_height
-
-CAddressIndexDB::CAddressIndexDB(bool fWipe) : 
-    CDBWrapper(GetDataDir() / "addresses", 32 << 20, false, fWipe) {
-}
-
-bool CAddressIndexDB::ReadAddress (const CScript& script, std::vector<std::pair<CAddressKey, CAddressValue>> &vec) {
-    std::unique_ptr<CDBIterator> pcursor(NewIterator());
-    pcursor->Seek(std::make_pair(DB_ADDRESS, CAddressKey(script, COutPoint())));
-    while (pcursor->Valid()) {
-        std::pair<char, CAddressKey> key;
-        if (pcursor->GetKey(key) && (key.first == DB_ADDRESS) && key.second.script == script) {
-            CAddressValue value;
-            if (pcursor->GetValue(value)) {
-                vec.push_back(std::make_pair(key.second, value));
-                pcursor->Next();
-            } else {
-                return error("failed to get address index value");
-            }
-        } else {
-            break;
-        }
-    }
-    return true;
-}
-
-bool CAddressIndexDB::WriteAddress (const std::vector<std::pair<CAddressKey, CAddressValue>> &vec) {
-    static std::deque<std::pair<CAddressKey, CAddressValue>> ququeAddress;
-    if (IsInitialBlockDownload() && (ququeAddress.size() < 10000)) {
-        for (auto it : vec) ququeAddress.push_back(std::make_pair(it.first, it.second));
-        return true;
-    }
-    CDBBatch batch(*this);
-    while (!ququeAddress.empty()) {
-        auto item = ququeAddress.front();
-        ququeAddress.pop_front();
-        if (item.second.height == 0) {
-            batch.Erase(std::make_pair(DB_ADDRESS, item.first));
-        } else {
-            batch.Write(std::make_pair(DB_ADDRESS, item.first), item.second);
-        }
-    }
-    for (auto it : vec) {
-        if (it.second.height == 0) {
-            batch.Erase(std::make_pair(DB_ADDRESS, it.first));
-        } else {
-            batch.Write(std::make_pair(DB_ADDRESS, it.first), it.second);
-        }
-    }
-    return WriteBatch(batch);
 }
