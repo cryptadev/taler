@@ -1,6 +1,6 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2018 The Bitcoin Core developers
-// Copyright (c) 2019-2021 Uladzimir (https://t.me/vovanchik_net)
+// Copyright (c) 2023 Uladzimir (t.me/cryptadev)
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -744,7 +744,7 @@ const fs::path &GetBlocksDir(bool fNetSpecific)
     if (fNetSpecific)
         path /= BaseParams().DataDir();
 
-    path /= "blocks_db";
+    path /= "blocks";
     fs::create_directories(path);
     return path;
 }
@@ -1212,10 +1212,10 @@ std::string CopyrightHolders(const std::string& strPrefix)
         strCopyrightHolders.replace(strCopyrightHolders.find("2009"), sizeof("2009")-1, "2019"); 
         std::string strPrefix1 = strPrefix;
         strPrefix1.replace(strPrefix1.find("2009"), sizeof("2009")-1, "2017");
-        strPrefix1.replace(strPrefix1.find("2022"), sizeof("2022")-1, "2018");
+        strPrefix1.replace(strPrefix1.find("2023"), sizeof("2023")-1, "2018");
         strCopyrightHolders += "\n" + strPrefix1 + "The Taler Core developers";
         std::string strPrefix2 = strPrefix;
-        strPrefix2.replace(strPrefix2.find("2022"), sizeof("2022")-1, "2018");
+        strPrefix2.replace(strPrefix2.find("2023"), sizeof("2023")-1, "2018");
         strCopyrightHolders += "\n" + strPrefix2 + "The Bitcoin Core developers";
     }
     return strCopyrightHolders;

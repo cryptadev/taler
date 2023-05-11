@@ -1,5 +1,5 @@
 // Copyright (c) 2012-2018 The Bitcoin Core developers
-// Copyright (c) 2019-2021 Uladzimir (https://t.me/vovanchik_net)
+// Copyright (c) 2023 Uladzimir (t.me/cryptadev)
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -15,20 +15,17 @@
 CAddressKey::CAddressKey(const CScript& pscript, const COutPoint& pout) {
     script = pscript;
     out = pout;
-    stype = 0;
     if (script.size() == 67 && script[0] == 65 && script.back() == OP_CHECKSIG) {
         CTxDestination ar;
         if (ExtractDestination(script, ar)) script = GetScriptForDestination(ar);
-        stype = 1;
     }
     if (script.size() == 35 && script[0] == 33 && script.back() == OP_CHECKSIG) {
         CTxDestination ar;
         if (ExtractDestination(script, ar)) script = GetScriptForDestination(ar);
-        stype = 2;
     }
 }
 
-std::string CAddressKey::GetAddr () {
+std::string CAddressKey::GetAddr () const {
     CTxDestination ar;
     if (ExtractDestination (script, ar)) return EncodeDestination(ar);
     return ScriptToAsmStr (script);
@@ -111,14 +108,14 @@ void CCoinsViewCache::AddCoin(const COutPoint &outpoint, Coin&& coin, bool possi
     cachedCoinsUsage += it->second.coin.DynamicMemoryUsage();
 }
 
-void AddCoins(CCoinsViewCache& cache, const CTransaction& tx, int nHeight, uint32_t nTime, uint32_t nOffset, bool check) {
+void AddCoins(CCoinsViewCache& cache, const CTransaction& tx, int nHeight, bool check) {
     bool fCoinbase = tx.IsCoinBase();
     const uint256& txid = tx.GetHash();
     for (size_t i = 0; i < tx.vout.size(); ++i) {
         bool overwrite = check ? cache.HaveCoin(COutPoint(txid, i)) : fCoinbase;
         // Always set the possible_overwrite flag to AddCoin for coinbase txn, in order to correctly
         // deal with the pre-BIP30 occurrences of duplicate coinbase transactions.
-        cache.AddCoin(COutPoint(txid, i), Coin(tx.vout[i], nHeight, nTime, nOffset, fCoinbase), overwrite);
+        cache.AddCoin(COutPoint(txid, i), Coin(tx.vout[i], nHeight, fCoinbase), overwrite);
     }
 }
 

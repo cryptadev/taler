@@ -1,6 +1,6 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2018 The Bitcoin Core developers
-// Copyright (c) 2019-2021 Uladzimir (https://t.me/vovanchik_net)
+// Copyright (c) 2023 Uladzimir (t.me/cryptadev)
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -35,6 +35,8 @@
 
 class CBlockIndex;
 class CBlockTreeDB;
+class CTxIndexDB;
+class CAddressIndexDB;
 class CChainParams;
 class CCoinsViewDB;
 class CInv;
@@ -313,7 +315,7 @@ bool AcceptToMemoryPool(CTxMemPool& pool, CValidationState &state, const CTransa
 std::string FormatStateMessage(const CValidationState &state);
 
 /** Apply the effects of this transaction on the UTXO set represented by view */
-void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, int nHeight, uint32_t nTime, uint32_t nOffset);
+void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, int nHeight);
 
 /** Transaction validation functions */
 
@@ -455,6 +457,8 @@ extern std::unique_ptr<CCoinsViewCache> pcoinsTip;
 
 /** Global variable that points to the active block tree (protected by cs_main) */
 extern std::unique_ptr<CBlockTreeDB> pblocktree;
+extern std::unique_ptr<CTxIndexDB> pblocktxindex;
+extern std::unique_ptr<CAddressIndexDB> pblockaddressindex;
 
 /**
  * Return the spend height, which is one more than the inputs.GetBestBlock().
@@ -488,12 +492,22 @@ inline bool IsBlockPruned(const CBlockIndex* pblockindex)
 
 CScript MakeCheckStakeScript (const CBlock& block);
 
-void correctCoin (const COutPoint &prevout, Coin& coin, std::string caller);
+void correctCoin (const COutPoint &prevout, Coin& coin, std::string caller, uint32_t& time, uint32_t& offset);
 bool GetCoinAge (const CTransaction& tx, const CCoinsViewCache& view, uint64_t& nCoinAge, uint32_t nTime,
     const Consensus::Params& params);
 
 bool CheckProofOfWork (const CBlockHeader& block, int height, const Consensus::Params& params); 
 bool CheckProofOfStake (const CBlockHeader& block, int height, const Consensus::Params& params, const COutPoint &out, 
     CAmount value, uint32_t time, uint32_t offset, uint256* hashProofOfStake = nullptr);
-    
+
+struct AddressInfo {
+    CAmount receive_amount, send_amount;
+    int total_in, total_out, total_max;
+    std::vector<std::pair<CAddressKey, CAddressValue> > data;
+
+    AddressInfo () : receive_amount(0), send_amount(0), total_in(0), total_out(0), total_max(-1), data() { }
+};
+
+bool GetAddressInfo (const CScript& script, AddressInfo& data);
+
 #endif // BITCOIN_VALIDATION_H

@@ -1,6 +1,6 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2018 The Bitcoin Core developers
-// Copyright (c) 2019-2021 Uladzimir (https://t.me/vovanchik_net)
+// Copyright (c) 2023 Uladzimir (t.me/cryptadev)
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -1751,6 +1751,7 @@ int64_t CWallet::RescanFromTime(int64_t startTime, const WalletRescanReserver& r
     {
         LOCK(cs_main);
         startBlock = chainActive.FindEarliestAtLeast(startTime - TIMESTAMP_WINDOW);
+        if (startBlock == nullptr) startBlock = chainActive.Genesis();
         WalletLogPrintf("%s: Rescanning last %i blocks\n", __func__, startBlock ? chainActive.Height() - startBlock->nHeight + 1 : 0);
     }
 
@@ -2173,80 +2174,27 @@ void CWallet::ResendWalletTransactions(int64_t nBestBlockTime, CConnman* connman
  * @{
  */
 
-
-CAmount CWallet::GetBalance(const isminefilter& filter, const int min_depth) const
-{
-    CAmount nTotal = 0;
-    {
-        LOCK2(cs_main, cs_wallet);
-        for (const auto& entry : mapWallet)
-        {
-            const CWalletTx* pcoin = &entry.second;
-            if (pcoin->IsTrusted() && pcoin->GetDepthInMainChain() >= min_depth) {
-                nTotal += pcoin->GetAvailableCredit(true, filter);
-            }
-        }
+BalanceInfo CWallet::GetBalance (int min_depth) const {
+    BalanceInfo ret;
+    ret.Total = ret.Unconfirmed = ret.Immature = 0;
+    ret.TotalWatchOnly = ret.UnconfirmedWatchOnly = ret.ImmatureWatchOnly = 0;
+    LOCK2(cs_main, cs_wallet);
+    for (const auto& entry : mapWallet) {
+        const CWalletTx* pcoin = &entry.second;
+        bool isTrusted = pcoin->IsTrusted();
+        int depth = pcoin->GetDepthInMainChain();
+        if (isTrusted && depth >= min_depth)
+            ret.Total += pcoin->GetAvailableCredit(true, ISMINE_SPENDABLE);
+        if (!isTrusted && depth == 0 && pcoin->InMempool())
+            ret.Unconfirmed += pcoin->GetAvailableCredit();
+        ret.Immature += pcoin->GetImmatureCredit();
+        if (isTrusted && depth >= min_depth)
+            ret.TotalWatchOnly += pcoin->GetAvailableCredit(true, ISMINE_WATCH_ONLY);
+        if (!isTrusted && depth == 0 && pcoin->InMempool())
+            ret.UnconfirmedWatchOnly += pcoin->GetAvailableCredit(true, ISMINE_WATCH_ONLY);
+        ret.ImmatureWatchOnly += pcoin->GetImmatureWatchOnlyCredit();
     }
-
-    return nTotal;
-}
-
-CAmount CWallet::GetUnconfirmedBalance() const
-{
-    CAmount nTotal = 0;
-    {
-        LOCK2(cs_main, cs_wallet);
-        for (const auto& entry : mapWallet)
-        {
-            const CWalletTx* pcoin = &entry.second;
-            if (!pcoin->IsTrusted() && pcoin->GetDepthInMainChain() == 0 && pcoin->InMempool())
-                nTotal += pcoin->GetAvailableCredit();
-        }
-    }
-    return nTotal;
-}
-
-CAmount CWallet::GetImmatureBalance() const
-{
-    CAmount nTotal = 0;
-    {
-        LOCK2(cs_main, cs_wallet);
-        for (const auto& entry : mapWallet)
-        {
-            const CWalletTx* pcoin = &entry.second;
-            nTotal += pcoin->GetImmatureCredit();
-        }
-    }
-    return nTotal;
-}
-
-CAmount CWallet::GetUnconfirmedWatchOnlyBalance() const
-{
-    CAmount nTotal = 0;
-    {
-        LOCK2(cs_main, cs_wallet);
-        for (const auto& entry : mapWallet)
-        {
-            const CWalletTx* pcoin = &entry.second;
-            if (!pcoin->IsTrusted() && pcoin->GetDepthInMainChain() == 0 && pcoin->InMempool())
-                nTotal += pcoin->GetAvailableCredit(true, ISMINE_WATCH_ONLY);
-        }
-    }
-    return nTotal;
-}
-
-CAmount CWallet::GetImmatureWatchOnlyBalance() const
-{
-    CAmount nTotal = 0;
-    {
-        LOCK2(cs_main, cs_wallet);
-        for (const auto& entry : mapWallet)
-        {
-            const CWalletTx* pcoin = &entry.second;
-            nTotal += pcoin->GetImmatureWatchOnlyCredit();
-        }
-    }
-    return nTotal;
+    return ret;
 }
 
 // Calculate total balance in a different way from GetBalance. The biggest
@@ -3121,8 +3069,8 @@ bool getCoinInfo (std::map<uint256, uint64_t>& cache, const COutPoint& out, uint
         if (pcoinsTip->GetCoin(out, coin) && (chainActive[coin.nHeight] != nullptr)) {
             const Consensus::Params& consensus = Params().GetConsensus();
             if ((consensus.forkNumber(chainActive.Height()) == 2) && (consensus.forkNumber(coin.nHeight) < 2)) return false;
-            correctCoin (out, coin, "getCoinInfo");
-            uint64_t tmp = coin.nOffset; tmp <<= 32; tmp |= coin.nTime; 
+            correctCoin (out, coin, "getCoinInfo", time, offset);
+            uint64_t tmp = offset; tmp <<= 32; tmp |= time; 
             cache[out.hash] = tmp;
         }
         if (!cache.count(out.hash)) return false;

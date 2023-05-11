@@ -1,12 +1,71 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2018 The Bitcoin Core developers
-// Copyright (c) 2019-2021 Uladzimir (https://t.me/vovanchik_net)
+// Copyright (c) 2023 Uladzimir (t.me/cryptadev)
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <chain.h>
 #include <validation.h>
 #include <util.h>
+#include <txdb.h>
+
+void CBlockIndex::SetStakeModifier (uint64_t nStakeModifier, bool fGeneratedStakeModifier) {
+    if (fGeneratedStakeModifier)
+        nStatus |= 0x00020000; //nFlags |= BLOCK_STAKE_MODIFIER;
+    if (fGeneratedStakeModifier)
+        pblocktree->WriteStakeModifier (*phashBlock, nStakeModifier);
+}
+
+uint64_t CBlockIndex::GetStakeModifier () const {
+    const CBlockIndex* index = this;
+    while (index->pprev && !GeneratedStakeModifier()) index = index->pprev;
+    uint64_t ret = 0;
+    static std::map<uint256, std::pair<uint64_t, uint64_t> > cache;
+    static uint64_t cacheIndex = 1;
+    const uint256& hash = index->GetBlockHash();
+    if (cache.count(hash) > 0) {
+        auto& item = cache[hash];
+        item.second = cacheIndex++;
+        return item.first;
+    }
+    pblocktree->ReadStakeModifier (hash, ret);
+    if (cache.size() > 1000) {
+        uint64_t cIndex = cacheIndex - 300;
+        auto it1 = cache.begin();
+        while (it1 != cache.end()) {
+            if (it1->second.second > cIndex) { ++it1; } else { it1 = cache.erase (it1); }
+        }
+    }
+    cache[hash] = std::make_pair(ret, cacheIndex++);
+    return ret;
+}
+
+void CBlockIndex::SetStakeHash (uint256 hashProofOfStake) {
+    if (IsProofOfStake()) pblocktree->WriteStakeHash (*phashBlock, hashProofOfStake);
+}
+
+uint256 CBlockIndex::GetStakeHash () const {
+    uint256 ret = {};
+    if (!IsProofOfStake()) return ret;
+    static std::map<uint256, std::pair<uint256, uint64_t> > cache;
+    static uint64_t cacheIndex = 1;
+    const uint256& hash = *phashBlock;
+    if (cache.count(hash) > 0) {
+        auto& item = cache[hash];
+        item.second = cacheIndex++;
+        return item.first;
+    }
+    pblocktree->ReadStakeHash (hash, ret);
+    if (cache.size() > 1000) {
+        uint64_t cIndex = cacheIndex - 300;
+        auto it1 = cache.begin();
+        while (it1 != cache.end()) {
+            if (it1->second.second > cIndex) { ++it1; } else { it1 = cache.erase (it1); }
+        }
+    }
+    cache[hash] = std::make_pair(ret, cacheIndex++);
+    return ret;    
+}
 
 /**
  * CChain implementation

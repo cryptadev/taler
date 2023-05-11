@@ -1,6 +1,6 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2018 The Bitcoin Core developers
-// Copyright (c) 2019-2021 Uladzimir (https://t.me/vovanchik_net)
+// Copyright (c) 2023 Uladzimir (https://t.me/cryptadev)
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -241,8 +241,6 @@ public:
         if (nFlags & BLOCK_STAKE_MODIFIER) nStatus |= 0x00020000;
         if (nFlags & BLOCK_NEW_FORMAT) nStatus |= 0x00040000;
     }
-    uint64_t nStakeModifier; // hash modifier for proof-of-stake
-    uint256 hashProofOfStake;
 
     bool IsProofOfStake() const {
         return ((nVersion & 0xFF010000) == 0x00010000) ? (nVersion & 0x00020000) 
@@ -263,12 +261,10 @@ public:
         return nStatus & 0x00020000; //(nFlags() & BLOCK_STAKE_MODIFIER);
     }
 
-    void SetStakeModifier(uint64_t nModifier, bool fGeneratedStakeModifier)
-    {
-        nStakeModifier = nModifier;
-        if (fGeneratedStakeModifier)
-            nStatus |= 0x00020000; //nFlags |= BLOCK_STAKE_MODIFIER;
-    }
+    void SetStakeModifier (uint64_t nStakeModifier, bool fGeneratedStakeModifier);
+    uint64_t GetStakeModifier () const;
+    void SetStakeHash (uint256 hashProofOfStake);
+    uint256 GetStakeHash () const;
 
     void SetNull()
     {
@@ -290,9 +286,6 @@ public:
         nTime          = 0;
         nBits          = 0;
         nNonce         = 0;
-
-        nStakeModifier = 0;
-        hashProofOfStake = uint256();
     }
 
     CBlockIndex()
@@ -372,11 +365,9 @@ public:
 
     std::string ToString() const
     {
-        return strprintf("CBlockIndex(nprev=%08x, nFile=%d, nHeight=%d, nPowHeight=%d, nFlags=(%s)(%d)(%s), nStakeModifier=%016llx, hashProofOfStake=%s, merkle=%s, hashBlock=%s)",
+        return strprintf("CBlockIndex(nprev=%08x, nFile=%d, nHeight=%d, nPowHeight=%d, nFlags=(%s)(%d)(%s), merkle=%s, hashBlock=%s)",
             pprev, nFile, nHeight, nPowHeight,
             GeneratedStakeModifier() ? "MOD" : "-", GetStakeEntropyBit(), IsProofOfStake()? "PoS" : "PoW",
-            nStakeModifier, 
-            hashProofOfStake.ToString().c_str(),
             hashMerkleRoot.ToString().substr(0,10).c_str(),
             GetBlockHash().ToString().substr(0,20).c_str());
     }
@@ -451,27 +442,6 @@ public:
         if (nStatus & BLOCK_HAVE_UNDO)
             READWRITE(VARINT(nUndoPos));
 
-        if (ser_action.ForRead()) {
-            nPowHeight = nHeight;
-            nStakeModifier = 0;
-            hashProofOfStake = uint256();
-        }
-        if (Params().forkNumber(nHeight) >= 3) {
-            READWRITE(VARINT(nPowHeight, VarIntMode::NONNEGATIVE_SIGNED));
-        } else {    
-            uint32_t nFlags2 = 0;
-            if (!ser_action.ForRead()) { nFlags2 = nFlags (); }
-            READWRITE(nFlags2);
-            if (ser_action.ForRead()) { nFlags_set (nFlags2); }
-            READWRITE(nStakeModifier);
-            if (Params().forkNumber(nHeight) >= 2) {
-                if (IsProofOfStake()) {
-                    READWRITE(hashProofOfStake);
-                };
-                READWRITE(VARINT(nPowHeight, VarIntMode::NONNEGATIVE_SIGNED));
-            }
-        }
-
         // block header
         READWRITE(this->nVersion);
         READWRITE(hashPrev);
@@ -479,6 +449,8 @@ public:
         READWRITE(nTime);
         READWRITE(nBits);
         READWRITE(nNonce);
+
+        READWRITE(VARINT(nPowHeight, VarIntMode::NONNEGATIVE_SIGNED));
     }
 
     uint256 GetBlockHash() const

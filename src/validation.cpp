@@ -1,6 +1,6 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2018 The Bitcoin Core developers
-// Copyright (c) 2019-2021 Uladzimir (https://t.me/vovanchik_net)
+// Copyright (c) 2023 Uladzimir (t.me/cryptadev)
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -252,6 +252,8 @@ namespace {
 std::unique_ptr<CCoinsViewDB> pcoinsdbview;
 std::unique_ptr<CCoinsViewCache> pcoinsTip;
 std::unique_ptr<CBlockTreeDB> pblocktree;
+std::unique_ptr<CTxIndexDB> pblocktxindex;
+std::unique_ptr<CAddressIndexDB> pblockaddressindex;
 
 enum class FlushStateMode {
     NONE,
@@ -974,7 +976,7 @@ bool GetTransaction(const uint256& hash, CTransactionRef& txOut, const Consensus
 
         if (fTxIndex) {
             CDiskTxPos postx;
-            if (!pblocktree->ReadTxIndex(hash, postx)) return false;
+            if (!pblocktxindex->Read(hash, postx)) return false;
             CAutoFile file(OpenBlockFile(postx, true), SER_DISK, CLIENT_VERSION);
             if (file.IsNull()) return error("%s: OpenBlockFile failed", __func__);
             CBlockHeader header;
@@ -1297,7 +1299,7 @@ void CChainState::InvalidBlockFound(CBlockIndex *pindex, const CValidationState 
     }
 }
 
-void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, CTxUndo &txundo, int nHeight, uint32_t nTime, uint32_t nOffset)
+void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, CTxUndo &txundo, int nHeight)
 {
     // mark inputs spent
     if (!tx.IsCoinBase()) {
@@ -1309,13 +1311,13 @@ void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, CTxUndo &txund
         }
     }
     // add outputs
-    AddCoins(inputs, tx, nHeight, nTime, nOffset, false);
+    AddCoins(inputs, tx, nHeight, false);
 }
 
-void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, int nHeight, uint32_t nTime, uint32_t nOffset)
+void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, int nHeight)
 {
     CTxUndo txundo;
-    UpdateCoins(tx, inputs, txundo, nHeight, nTime, nOffset);
+    UpdateCoins(tx, inputs, txundo, nHeight);
 }
 
 bool CScriptCheck::operator()() {
@@ -1523,6 +1525,51 @@ static bool AbortNode(CValidationState& state, const std::string& strMessage, co
 
 } // namespace
 
+std::map<CScript, std::pair<int, AddressInfo> > historyCache;
+CCriticalSection historyCacheLock;
+
+void CleanAddressInfo (int hei = 0, bool dolock = true) {
+    if (dolock) LOCK(historyCacheLock);
+    auto it1 = historyCache.begin();
+    while (it1 != historyCache.end()) {
+        if (it1->second.first == hei) { ++it1; } else { it1 = historyCache.erase (it1); }
+    }
+}
+
+bool GetAddressInfo (const CScript& script, AddressInfo& data) {
+    LOCK(historyCacheLock);
+    int hei = chainActive.Height();
+    if (historyCache.count(script) > 0) {
+        auto& item = historyCache[script];
+        if (item.first == hei) {
+            data = item.second;
+            return true;
+        } else CleanAddressInfo (hei, false); 
+    }
+    std::map<CAddressKey, CAddressValue> retmap;
+    if (pblockaddressindex) pblockaddressindex->Read (script, retmap);
+    std::vector<std::pair<CAddressKey, CAddressValue> > retvec;
+    for (const auto& item : retmap)
+        retvec.push_back(std::make_pair(item.first, item.second));
+    std::sort(retvec.begin(), retvec.end(), 
+        [](const std::pair<CAddressKey, CAddressValue>& l, const std::pair<CAddressKey, CAddressValue>& r) {
+            return l.second.height > r.second.height; });
+    data.receive_amount = data.send_amount = 0;
+    data.total_in = data.total_out = 0;
+    for (const auto& it : retvec) {
+        data.total_in++;
+        data.receive_amount += it.second.value;
+        if (it.second.spend_height != 0) {
+            data.total_out++;
+            data.send_amount += it.second.value;
+        }
+        if ((it.second.spend_height != 0) && (data.total_max > 0) && (data.total_out > data.total_max)) continue;
+        data.data.push_back(std::make_pair(it.first, it.second));
+    }
+    historyCache[script] = std::make_pair(hei, data);
+    return true;
+}
+
 /**
  * Restore the UTXO in a Coin at a given COutPoint
  * @param undo The Coin to be restored.
@@ -1574,20 +1621,11 @@ DisconnectResult CChainState::DisconnectBlock(const CBlock& block, const CBlockI
         return DISCONNECT_FAILED;
     }
 
-    std::vector<std::pair<CAddressKey, CAddressValue>> addressKeyValue;
-
     // undo transactions in reverse order
     for (int i = block.vtx.size() - 1; i >= 0; i--) {
         const CTransaction &tx = *(block.vtx[i]);
         uint256 hash = tx.GetHash();
         bool is_coinbase = tx.IsCoinBase();
-
-        for (unsigned int k = tx.vout.size(); k-- > 0;) {
-            if (!fAddressIndex) break;
-            const CTxOut &out = tx.vout[k];
-            if (out.scriptPubKey.IsUnspendable()) continue;
-            addressKeyValue.push_back(std::make_pair(CAddressKey(out.scriptPubKey, COutPoint(hash, k)), CAddressValue()));
-        }
 
         // Check that all outputs are available and match the outputs in the block itself
         // exactly.
@@ -1595,6 +1633,8 @@ DisconnectResult CChainState::DisconnectBlock(const CBlock& block, const CBlockI
             if (!tx.vout[o].scriptPubKey.IsUnspendable()) {
                 COutPoint out(hash, o);
                 Coin coin;
+                if (fAddressIndex)
+                    pblockaddressindex->Write (CAddressKey(tx.vout[o].scriptPubKey, out), CAddressValue());
                 bool is_spent = view.SpendCoin(out, &coin);
                 if (!is_spent || tx.vout[o] != coin.out || pindex->nHeight != coin.nHeight || is_coinbase != coin.fCoinBase) {
                     fClean = false; // transaction output mismatch
@@ -1611,22 +1651,16 @@ DisconnectResult CChainState::DisconnectBlock(const CBlock& block, const CBlockI
             }
             for (unsigned int j = tx.vin.size(); j-- > 0;) {
                 const COutPoint &out = tx.vin[j].prevout;
+                if (fAddressIndex) {
+                    const Coin& coin = txundo.vprevout[j];
+                    pblockaddressindex->Write (CAddressKey(coin.out.scriptPubKey, out),
+                                CAddressValue(coin.out.nValue, coin.nHeight, coin.IsCoinBase()));
+                }
                 int res = ApplyTxInUndo(std::move(txundo.vprevout[j]), view, out);
                 if (res == DISCONNECT_FAILED) return DISCONNECT_FAILED;
                 fClean = fClean && res != DISCONNECT_UNCLEAN;
-                if (!fAddressIndex) continue;
-                const Coin &coin = view.AccessCoin(out);
-                addressKeyValue.push_back(std::make_pair(CAddressKey(coin.out.scriptPubKey, out), 
-                            CAddressValue(coin.out.nValue, coin.nHeight, coin.IsCoinBase())));
             }
             // At this point, all of txundo.vprevout should have been moved out.
-        }
-    }
-
-    if (fAddressIndex) {
-        if (!pblocktree->WriteAddress(addressKeyValue)) {
-            AbortNode("Failed to write address");
-            return DISCONNECT_FAILED;
         }
     }
 
@@ -1746,7 +1780,7 @@ bool GetStakeModifier (const CBlockIndex* pindexCurrent, uint64_t& nStakeModifie
     CBlockIndex* pi = pindexCurrent->pprev;
     while (pi && pi->pprev && !pi->GeneratedStakeModifier()) pi = pi->pprev;
     if (!pi->GeneratedStakeModifier()) return error("GetStakeModifier: no generation at genesis block");
-    nStakeModifier = pi->nStakeModifier;
+    nStakeModifier = pi->GetStakeModifier();
     int64_t nModifierTime = pi->GetBlockTime();
 
     LogPrint (BCLog::SELECTCOINS, "GetStakeModifier: prev modifier=0x%016" PRIx64 " time=%s epoch=%u\n", 
@@ -1795,7 +1829,7 @@ bool GetStakeModifier (const CBlockIndex* pindexCurrent, uint64_t& nStakeModifie
             // previous proof-of-stake modifier
             arith_uint256 hashSelection;
             if (mapHash.count(pi->nHeight) > 0) { hashSelection = mapHash[pi->nHeight]; } else {
-                uint256 hashProof = pi->IsProofOfStake() ? pi->hashProofOfStake : pi->GetBlockHash();
+                uint256 hashProof = pi->IsProofOfStake() ? pi->GetStakeHash() : pi->GetBlockHash();
                 CDataStream ss(SER_GETHASH, 0);
                 ss << hashProof << nStakeModifier;
                 hashSelection = UintToArith256(Hash(ss.begin(), ss.end()));
@@ -1832,18 +1866,11 @@ static bool WriteTxIndexDataForBlock(const CBlock& block, CValidationState& stat
     if (!fTxIndex) return true;
 
     CDiskTxPos pos(pindex->GetBlockPos(), GetSizeOfCompactSize(block.vtx.size()));
-    std::vector<std::pair<uint256, CDiskTxPos> > vPos;
-    vPos.reserve(block.vtx.size());
     for (const CTransactionRef& tx : block.vtx)
     {
-        vPos.push_back(std::make_pair(tx->GetHash(), pos));
+        pblocktxindex->Write (tx->GetHash(), pos);
         pos.nTxOffset += ::GetSerializeSize(*tx, SER_DISK, CLIENT_VERSION);
     }
-
-    if (!pblocktree->WriteTxIndex(vPos)) {
-        return AbortNode(state, "Failed to write transaction index");
-    }
-
     return true;
 }
 
@@ -1883,9 +1910,10 @@ bool CChainState::ConnectBlock(const CBlock& block, CValidationState& state, CBl
         Coin coin;
         if (!pcoinsTip->GetCoin(prevout, coin)) 
             return state.DoS(1, error("CheckProofOfStake(): Coin not found"));
-        correctCoin (prevout, coin, "ConnectBlock");
+        uint32_t time = 0, offset = 0;
+        correctCoin (prevout, coin, "ConnectBlock", time, offset);
         if (!CheckProofOfStake (block.GetBlockHeader(), pindex->nHeight, consensus, prevout, coin.out.nValue, 
-                    coin.nTime, coin.nOffset, &hashProofOfStake)) {
+                    time, offset, &hashProofOfStake)) {
             LogPrintf("WARNING: %s: check proof-of-stake failed for block %s\n", __func__, block.GetHash().ToString());
             return state.DoS(1, error("CheckProofOfStake(): check kernel failed on block %s", block.GetHash().ToString()));
         }
@@ -1901,7 +1929,7 @@ bool CChainState::ConnectBlock(const CBlock& block, CValidationState& state, CBl
 
         if (!fJustCheck) {
             if (block.IsProofOfStake()) {
-                pindex->hashProofOfStake = hashProofOfStake;
+                pindex->SetStakeHash (hashProofOfStake);
             }
         }
     }
@@ -2010,10 +2038,8 @@ bool CChainState::ConnectBlock(const CBlock& block, CValidationState& state, CBl
     int64_t nSigOpsCost = 0;
     blockundo.vtxundo.reserve(block.vtx.size() - 1);
     std::vector<PrecomputedTransactionData> txdata;
-    std::vector<std::pair<CAddressKey, CAddressValue>> addressKeyValue;
     txdata.reserve(block.vtx.size()); // Required so that pointers to individual PrecomputedTransactionData don't get invalidated
     CAmount posReward = 0;
-    uint32_t tx_index_in_block = GetSizeOfCompactSize(block.vtx.size()) + CBlockHeader::NORMAL_SERIALIZE_SIZE;
     for (unsigned int i = 0; i < block.vtx.size(); i++)
     {
         const CTransaction &tx = *(block.vtx[i]);
@@ -2061,14 +2087,12 @@ bool CChainState::ConnectBlock(const CBlock& block, CValidationState& state, CBl
                 return state.DoS(100, error("%s: contains a non-BIP68-final transaction", __func__),
                                  REJECT_INVALID, "bad-txns-nonfinal");
             }
-        }
-
-        for (size_t j = 0; j < tx.vin.size(); j++) {
-            if (!fAddressIndex) break;
-            const Coin& coin = view.AccessCoin(tx.vin[j].prevout);
-            CAddressValue addrval(coin.out.nValue, coin.nHeight, coin.IsCoinBase(), pindex->nHeight, tx.GetHash(), j);
-            if (!fTxIndex) addrval.height = 0;
-            addressKeyValue.push_back(std::make_pair(CAddressKey(coin.out.scriptPubKey, tx.vin[j].prevout), addrval));
+            for (size_t j = 0; j < tx.vin.size(); j++) {
+                if (!fAddressIndex) break;
+                const Coin& coin = view.AccessCoin(tx.vin[j].prevout);
+                pblockaddressindex->Write (CAddressKey(coin.out.scriptPubKey, tx.vin[j].prevout), CAddressValue(coin.out.nValue, 
+                            fTxIndex ? coin.nHeight : 0, coin.IsCoinBase(), pindex->nHeight, tx.GetHash(), j));
+            }
         }
 
         // GetTransactionSigOpCost counts 3 types of sigops:
@@ -2095,16 +2119,15 @@ bool CChainState::ConnectBlock(const CBlock& block, CValidationState& state, CBl
             if (!fAddressIndex) break;
             const CTxOut &out = tx.vout[k];
             if (out.scriptPubKey.IsUnspendable()) continue;
-            addressKeyValue.push_back(std::make_pair(CAddressKey(out.scriptPubKey, COutPoint(tx.GetHash(), k)),
-                        CAddressValue(out.nValue, pindex->nHeight, tx.IsCoinBase())));
+            pblockaddressindex->Write (CAddressKey(out.scriptPubKey, COutPoint(tx.GetHash(), k)), 
+                        CAddressValue(out.nValue, pindex->nHeight, tx.IsCoinBase()));
         }
 
         CTxUndo undoDummy;
         if (i > 0) {
             blockundo.vtxundo.push_back(CTxUndo());
         }
-        UpdateCoins(tx, view, i == 0 ? undoDummy : blockundo.vtxundo.back(), pindex->nHeight, pindex->GetBlockTime(), tx_index_in_block);
-        tx_index_in_block += ::GetSerializeSize(tx, SER_DISK, CLIENT_VERSION);
+        UpdateCoins(tx, view, i == 0 ? undoDummy : blockundo.vtxundo.back(), pindex->nHeight);
     }
     int64_t nTime3 = GetTimeMicros(); nTimeConnect += nTime3 - nTime2;
     LogPrint(BCLog::BENCH, "      - Connect %u transactions: %.2fms (%.3fms/tx, %.3fms/txin) [%.2fs (%.2fms/blk)]\n", (unsigned)block.vtx.size(), MILLI * (nTime3 - nTime2), MILLI * (nTime3 - nTime2) / block.vtx.size(), nInputs <= 1 ? 0 : MILLI * (nTime3 - nTime2) / (nInputs-1), nTimeConnect * MICRO, nTimeConnect * MILLI / nBlocksTotal);
@@ -2146,13 +2169,6 @@ bool CChainState::ConnectBlock(const CBlock& block, CValidationState& state, CBl
     if (!WriteTxIndexDataForBlock(block, state, pindex))
         return false;
 
-    if (fAddressIndex) {
-        if (!pblocktree->WriteAddress(addressKeyValue)) {
-            AbortNode("Failed to write address");
-            return DISCONNECT_FAILED;
-        }
-    }
-
     assert(pindex->phashBlock);
     // add this block to the view's block chain
     view.SetBestBlock(pindex->GetBlockHash());
@@ -2166,20 +2182,19 @@ bool CChainState::ConnectBlock(const CBlock& block, CValidationState& state, CBl
     return true;
 }
 
-void correctCoin (const COutPoint &prevout, Coin& coin, std::string caller) {
-    if ((coin.nTime != 0) && (coin.nOffset != 0)) return;
+void correctCoin (const COutPoint &prevout, Coin& coin, std::string caller, uint32_t& time, uint32_t& offset) {
     CBlockIndex* pi = chainActive[coin.nHeight];
     if (pi == nullptr) return;
-    coin.nTime = pi->GetBlockTime();
+    time = pi->GetBlockTime();
     if (Params().forkNumber(coin.nHeight) >= 3) return;
     CBlock block;
     if (!ReadBlockFromDisk(block, pi, Params().GetConsensus())) return;
     uint32_t tx_index_in_block = GetSizeOfCompactSize(block.vtx.size()) + CBlockHeader::NORMAL_SERIALIZE_SIZE; 
     for (const auto& tx : block.vtx) {
         if (tx->GetHash() == prevout.hash) {
-            coin.nOffset = tx_index_in_block;
+            offset = tx_index_in_block;
             LogPrint (BCLog::SELECTCOINS, "Modify(%s): nOut=%s.%d nHeigth=%d nTime=%d nOffset=%d\n",
-                caller, prevout.hash.ToString(), prevout.n, coin.nHeight, coin.nTime, coin.nOffset);
+                caller, prevout.hash.ToString(), prevout.n, coin.nHeight, time, offset);
         }
         tx_index_in_block += ::GetSerializeSize(tx, SER_DISK, CLIENT_VERSION);             
     }
@@ -2196,13 +2211,14 @@ bool GetCoinAge(const CTransaction& tx, const CCoinsViewCache& view, uint64_t& n
         Coin coin;
         if (!view.GetCoin(prevout, coin))
             return error("%s() : tx.vin not found in GetCoinAge()", __PRETTY_FUNCTION__);
-        correctCoin (prevout, coin, "GetCoinAge");
-
-        if (coin.nTime + params.nStakeMinAge > nTime)
+        CBlockIndex* pi = chainActive[coin.nHeight];
+        uint32_t time = 0;
+        if (pi) time = pi->GetBlockTime();
+        if (time + params.nStakeMinAge > nTime)
             continue; // only count coins meeting min age requirement
         int64_t nValueIn = coin.out.nValue;
-        bnCentSecond += arith_uint256(nValueIn) * (nTime - coin.nTime) / CENT;
-        LogPrint(BCLog::SELECTCOINS, "coin age nValueIn=%-12lld nTimeDiff=%d bnCentSecond=%s\n", nValueIn, nTime - coin.nTime, bnCentSecond.ToString());
+        bnCentSecond += arith_uint256(nValueIn) * (nTime - time) / CENT;
+        LogPrint(BCLog::SELECTCOINS, "coin age nValueIn=%-12lld nTimeDiff=%d bnCentSecond=%s\n", nValueIn, nTime - time, bnCentSecond.ToString());
     }
     arith_uint256 bnCoinDay = bnCentSecond * CENT / COIN / params.nCoinAgeTick;
     LogPrint(BCLog::SELECTCOINS, "coin age bnCoinDay=%s\n", bnCoinDay.ToString());
@@ -2240,7 +2256,7 @@ bool CheckProofOfStake (const CBlockHeader& block, int height, const Consensus::
                 nStakeModifierTime = pindex->GetBlockTime();
             }
         }
-        uint64_t nStakeModifier = pindex->nStakeModifier;
+        uint64_t nStakeModifier = pindex->GetStakeModifier();
         ss << nStakeModifier << time << offset << time << out.n << block.nTime;
         LogPrint(BCLog::SELECTCOINS, "CheckProofOfStake(): using modifier 0x%016" PRIx64 " at height=%d\n", nStakeModifier, nStakeModifierHeight);
     }
@@ -2341,7 +2357,7 @@ bool static FlushStateToDisk(const CChainParams& chainparams, CValidationState &
         bool fCacheLarge = mode == FlushStateMode::PERIODIC && cacheSize > std::max((9 * nTotalSpace) / 10, nTotalSpace - MAX_BLOCK_COINSDB_USAGE * 1024 * 1024);
         // The cache is over the limit, we have to write now.
         bool fCacheCritical = mode == FlushStateMode::IF_NEEDED && cacheSize > nTotalSpace;
-        fCacheCritical |= mode == FlushStateMode::IF_NEEDED && nNow > nLastFlush + (int64_t) 600000000;
+        fCacheCritical |= mode == FlushStateMode::IF_NEEDED && nNow > nLastFlush + (int64_t) 1800000000;
         // It's been a while since we wrote the block index to disk. Do this frequently, so we don't need to redownload after a crash.
         bool fPeriodicWrite = mode == FlushStateMode::PERIODIC && nNow > nLastWrite + (int64_t)DATABASE_WRITE_INTERVAL * 1000000;
         // It's been very long since we flushed the cache. Do this infrequently, to optimize cache usage.
@@ -2369,9 +2385,19 @@ bool static FlushStateToDisk(const CChainParams& chainparams, CValidationState &
                     vBlocks.push_back(*it);
                     setDirtyBlockIndex.erase(it++);
                 }
-                if (!pblocktree->WriteBatchSync(vFiles, nLastBlockFile, vBlocks)) {
-                    return AbortNode(state, "Failed to write to block index database");
+                if (!pblocktree->FlushStake()) {
+                    return AbortNode(state, "Failed write stake info to database");
                 }
+                if (!pblocktree->WriteBatchSync(vFiles, nLastBlockFile, vBlocks)) {
+                    return AbortNode(state, "Failed write block index to database");
+                }
+                if (fTxIndex && !pblocktxindex->Flush()) {
+                    return AbortNode(state, "Failed write transaction index to database");
+                }
+                if (fAddressIndex && !pblockaddressindex->Flush()) {
+                    return AbortNode(state, "Failed write addresses index to database");
+                }
+                CleanAddressInfo ();
             }
             // Finally remove any pruned files
             if (fFlushForPrune)
@@ -4388,7 +4414,6 @@ bool CChainState::RollforwardBlock(const CBlockIndex* pindex, CCoinsViewCache& i
         return error("ReplayBlock(): ReadBlockFromDisk failed at %d, hash=%s", pindex->nHeight, pindex->GetBlockHash().ToString());
     }
 
-    uint32_t tx_index_in_block = GetSizeOfCompactSize(block.vtx.size()) + CBlockHeader::NORMAL_SERIALIZE_SIZE;
     for (const CTransactionRef& tx : block.vtx) {
         if (!tx->IsCoinBase()) {
             for (const CTxIn &txin : tx->vin) {
@@ -4396,8 +4421,7 @@ bool CChainState::RollforwardBlock(const CBlockIndex* pindex, CCoinsViewCache& i
             }
         }
         // Pass check = true as every addition may be an overwrite.
-        AddCoins(inputs, *tx, pindex->nHeight, pindex->GetBlockTime(), tx_index_in_block, true);
-        tx_index_in_block += ::GetSerializeSize(tx, SER_DISK, CLIENT_VERSION);
+        AddCoins(inputs, *tx, pindex->nHeight, true);
     }
     return true;
 }

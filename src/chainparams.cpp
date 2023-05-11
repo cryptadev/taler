@@ -1,6 +1,6 @@
 // Copyright (c) 2010 Satoshi Nakamoto
 // Copyright (c) 2009-2018 The Bitcoin Core developers
-// Copyright (c) 2019-2021 Uladzimir (https://t.me/vovanchik_net)
+// Copyright (c) 2023 Uladzimir (https://t.me/cryptadev)
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -84,11 +84,11 @@ public:
         
         // The best chain should have at least this much work.
         consensus.nMinimumChainWork =
-            uint256S("0x00000000000000000000000000000000000000000000000001961f7d44698b6f"); // 1500000
+            uint256S("0x000000000000000000000000000000000000000000000000044082fb8920e95e"); // 2500000
 
         // By default assume that the signatures in ancestors of this block are valid.
         consensus.defaultAssumeValid =
-            uint256S("0x514039919915738142da223ff83f131f0f7ac75c123d6ffa0cd9c23e40aeb328"); // 1500000
+            uint256S("0xe0190589986f5ae78585bb5307a910183ad379da3327e9dfd215eb3bc956ce3a"); // 2500000
 
         /**
          * The message start string is designed to be unlikely to occur in normal data.
@@ -115,9 +115,9 @@ public:
         // release ASAP to avoid it where possible.
         vSeeds.clear();
         vSeeds.emplace_back("dnsseed.talercrypto.com");
-        vSeeds.emplace_back("dnsseed.mikalair.me");
         vSeeds.emplace_back("talerseed1.vovanchik.net");
         vSeeds.emplace_back("talerseed2.vovanchik.net");
+        vSeeds.emplace_back("talerseed3.vovanchik.net");
 
         base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1, 65);
         base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1, 50);
@@ -145,6 +145,7 @@ public:
                 {734864, uint256S("0x11367f424327987636e48a1d8d81b34d92c397a48171a53ead697ac3037ec6f3")},
                 {1000000, uint256S("0x76928d1d18bc7e68fba6fdb66ad6145ee7312c98de76d95e353afc5d34e94750")},
                 {1500000, uint256S("0x514039919915738142da223ff83f131f0f7ac75c123d6ffa0cd9c23e40aeb328")},
+                {2500000, uint256S("0xe0190589986f5ae78585bb5307a910183ad379da3327e9dfd215eb3bc956ce3a")},
             }
         };
 
@@ -209,6 +210,9 @@ public:
                uint256S("0x985fae483ebbef9cde04a259282cb7465d52bf56824caf1a8132395e90488b12")); 
 
         vSeeds.clear();
+        vSeeds.emplace_back("talerseed1.vovanchik.net");
+        vSeeds.emplace_back("talerseed2.vovanchik.net");
+        vSeeds.emplace_back("talerseed3.vovanchik.net");
         vFixedSeeds.clear();
 
         base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1, 111);
