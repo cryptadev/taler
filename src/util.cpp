@@ -439,6 +439,9 @@ bool ArgsManager::ParseParameters(int argc, const char* const argv[], std::strin
         }
     }
 
+    fs::path curr = fs::current_path();
+    if (fs::exists(curr / ".portable")) SoftSetArg("-datadir", curr.string());
+
     // we do not allow -includeconf from command line, so we clear it here
     auto it = m_override_args.find("-includeconf");
     if (it != m_override_args.end()) {
